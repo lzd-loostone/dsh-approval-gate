@@ -1112,30 +1112,53 @@ export default {
     /**
      * 底层 flash 调用：流式请求并累积文本输出（可取消）。
      * 由 judgeOnce / verifySimilarity 共用；异常向上抛，由 withRetry 决定重试或降级。
+     * reasoningEffort 兼容：dsh-llm 在模型未声明 reasoning 能力时，传任何
+     * reasoningEffort（含 'off'）都会同步抛 UNSUPPORTED_REASONING_EFFORT
+     * （dsh-llm/lib/index.js resolveCallWithInfo）。故先带 'off' 尝试，命中该
+     * 错误即按 路由 记住并降级为不传该键；其它错误原样上抛（fail-safe）。
      * @returns {Promise<string>} 模型原始输出文本
      */
+    const reasoningUnsupportedRoutes = new Set()
+
     const callFlash = async (userText, systemPrompt, signal) => {
       const { provider, model } = resolveModel()
-      let text = ''
-      for await (const chunk of llm.stream({
-        provider,
-        model,
-        messages: [{ role: 'user', content: [{ type: 'text', text: userText }] }],
-        system: systemPrompt,
-        temperature: 0,
-        reasoningEffort: 'off',
-        // 256：结论仅几个词，但模型偶发先输出复述/思考文本，64 会被截断导致解析失败
-        maxTokens: 256,
-        signal
-      })) {
-        if (chunk.type === 'text-delta') text += chunk.text
-        else if (chunk.type === 'reasoning-delta') text += chunk.text
-        else if (chunk.type === 'finish' && (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted')) {
-          const failure = chunk.reason.failure && chunk.reason.failure.message ? chunk.reason.failure.message : chunk.reason.kind
-          throw new Error('flash 调用失败: ' + failure)
+      const route = provider + '/' + model
+
+      const consume = async (withReasoning) => {
+        let text = ''
+        for await (const chunk of llm.stream(Object.assign({
+          provider,
+          model,
+          messages: [{ role: 'user', content: [{ type: 'text', text: userText }] }],
+          system: systemPrompt,
+          temperature: 0,
+          // 256：结论仅几个词，但模型偶发先输出复述/思考文本，64 会被截断导致解析失败
+          maxTokens: 256,
+          signal
+        }, withReasoning ? { reasoningEffort: 'off' } : {}))) {
+          if (chunk.type === 'text-delta') text += chunk.text
+          else if (chunk.type === 'reasoning-delta') text += chunk.text
+          else if (chunk.type === 'finish' && chunk.reason && (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted')) {
+            const failure = chunk.reason.failure && chunk.reason.failure.message ? chunk.reason.failure.message : chunk.reason.kind
+            throw new Error('flash 调用失败: ' + failure)
+          }
         }
+        return text
       }
-      return text
+
+      const isReasoningUnsupported = (error) =>
+        (error && (error.code === 'UNSUPPORTED_REASONING_EFFORT'
+          || /does not support reasoning effort/i.test(String((error && error.message) || ''))))
+
+      if (reasoningUnsupportedRoutes.has(route)) return await consume(false)
+      try {
+        return await consume(true)
+      } catch (error) {
+        if (!isReasoningUnsupported(error)) throw error
+        reasoningUnsupportedRoutes.add(route)
+        audit(`CONFIG  ${route} 未声明 reasoning 能力，flash 调用降级为不带 reasoningEffort`)
+        return await consume(false)
+      }
     }
 
     /**
@@ -1248,10 +1271,10 @@ export default {
         if (!second.timedOut) return second
       } catch (error) {
         console.error(`[${NAME}] ${label} 重试仍异常`, error)
-        return { failed: true }
+        return { failed: true, lastError: String((error && error.message) || error) }
       }
       console.warn(`[${NAME}] ${label} 两次超时(${timeoutMs}ms×2)`)
-      return { failed: true }
+      return { failed: true, lastError: `两次超时(${timeoutMs}ms×2)` }
     }
 
     /** flash 风险判定（带超时重试）：失败 → { verdict:'risky', category:'neutral', failed:true }（fail-safe） */
@@ -1340,7 +1363,7 @@ export default {
         }
 
         // 3. flash 判定
-        const { verdict, category, timedOut, failed } = await judgeWithFlash(toolName, mode, justification)
+        const { verdict, category, timedOut, failed, lastError } = await judgeWithFlash(toolName, mode, justification)
 
         if (verdict === 'safe') {
           audit(`ALLOW   ${toolName} mode=${mode || 'none'} (flash-safe${timedOut ? '，重试后' : ''})`)
@@ -1352,7 +1375,7 @@ export default {
 
         // 4a. flash 完全失败（超时×2/异常×2）→ 转人工（fail-safe：无法判断绝不自动放行）
         if (failed) {
-          audit(`FAILED  ${toolName} mode=${mode || 'none'} → 人工 | ${reason.slice(0, 120)}`)
+          audit(`FAILED  ${toolName} mode=${mode || 'none'} → 人工 | flash error: ${lastError || 'unknown'} | ${reason.slice(0, 120)}`)
           return forwardToHuman(sessionId, toolName, mode, reason, justification, cat, 'flash-failed')
         }
 
