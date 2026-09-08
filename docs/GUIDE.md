@@ -30,11 +30,11 @@ DENY（不可逆危险词）→ 白名单（确定性规则）→ denyRules（�
 ## 安装
 
 ```sh
-# 方式一：npm 安装（推荐）
-dsh plugin --profile web add dsh-approval-gate
+# 方式一：fork 安装（推荐，v0.5.3 含 DSH 0.1.2 兼容修复；npm 上的上游包无修复）
+dsh plugin --profile web add "git+https://github.com/lzd-loostone/dsh-approval-gate.git#v0.5.3"
 
-# 方式二：GitHub 安装
-dsh plugin --profile web add "github:moon09300731/dsh-approval-gate#main"
+# 方式二：GitHub 源（等价）
+dsh plugin --profile web add "github:lzd-loostone/dsh-approval-gate#v0.5.3"
 ```
 
 ## ⚠️ 安装后必须手动配置权限预设（关键步骤）
@@ -65,6 +65,8 @@ dsh plugin --profile web add "github:moon09300731/dsh-approval-gate#main"
 ```
 
 重启 `dsh web` 后，权限下拉菜单会出现「自动审批（Flash）」选项。
+
+> 提示：设置页的「一键初始化」按钮在根节点为空 `[]` 的全新 profile 上会写入非法 YAML（上游 issue #6），可能导致整个 profile 无法启动。按上方完整区块手动编辑 `cordis.patch.yml` 最稳妥。
 
 ## 配置（可选）
 

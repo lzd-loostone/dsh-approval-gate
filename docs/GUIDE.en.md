@@ -30,11 +30,11 @@ DENY (irreversible keywords) → allowlist (deterministic rules) → denyRules (
 ## Install
 
 ```sh
-# Option 1: npm (recommended)
-dsh plugin --profile web add dsh-approval-gate
+# Option 1: fork install (recommended; v0.5.3 includes the DSH 0.1.2 fixes; the upstream npm package has none)
+dsh plugin --profile web add "git+https://github.com/lzd-loostone/dsh-approval-gate.git#v0.5.3"
 
-# Option 2: GitHub
-dsh plugin --profile web add "github:moon09300731/dsh-approval-gate#main"
+# Option 2: GitHub source (equivalent)
+dsh plugin --profile web add "github:lzd-loostone/dsh-approval-gate#v0.5.3"
 ```
 
 ## ⚠️ Manual permission preset (required after install)
@@ -65,6 +65,8 @@ Edit `~/.dsh/profiles/web/cordis.patch.yml` and append (or merge into the existi
 ```
 
 Restart `dsh web`; the permission dropdown then offers "Auto Approval (Flash)".
+
+> Note: the settings-page "Initialize preset" button writes invalid YAML on a fresh empty (`[]`) profile (upstream issue #6), which can prevent the profile from loading. Editing the full block above into `cordis.patch.yml` by hand is the safest path.
 
 ## Configuration (optional)
 

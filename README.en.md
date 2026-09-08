@@ -40,7 +40,7 @@ The "Auto-approval" section in Settings provides full configuration: **preset in
 ## 🚀 Quick Start
 
 ```sh
-dsh plugin --profile web add dsh-approval-gate
+dsh plugin --profile web add "git+https://github.com/lzd-loostone/dsh-approval-gate.git#v0.5.3"
 ```
 
 1. **Add the permission preset**: append the `auto-approve` preset to `~/.dsh/profiles/web/cordis.patch.yml` ([see guide](docs/GUIDE.en.md#%E2%9A%A0%EF%B8%8F-manual-permission-preset-required-after-install))
